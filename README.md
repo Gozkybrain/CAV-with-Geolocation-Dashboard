@@ -2,8 +2,6 @@
 
 A production-grade **Contact Address Verification (CAV)** system with **role-based workflows**, **multi-step verification**, **invite-only registration**, and **Excel data portability**.
 
-This system is designed to scale across compliance-heavy platforms (ads, fintech, logistics, marketplaces).
-
 ---
 
 ## Tech Stack
