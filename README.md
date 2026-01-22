@@ -2,6 +2,7 @@
 
 A production-grade **Contact Address Verification (CAV)** system with **role-based workflows**, **multi-step verification**, **invite-only registration**, and **Excel data portability**.
 
+
 ---
 
 ## Tech Stack
@@ -51,45 +52,73 @@ All logic runs in **Next.js server routes / server actions** for full control an
 ## Geo-location & Address Verification
 
 ### Address → Coordinates (Geocoding)
-**Configurable via ENV**
 
-Recommended APIs:
-- **Google Maps Geocoding API**
-- **Mapbox Geocoding API**
-- **OpenCage Geocoder** (cost-effective, dev-friendly)
-
-Recommended NPM packages:
-- `@googlemaps/google-maps-services-js`
-- `mapbox-sdk`
-- `opencage-api-client`
-
-
-## Distance Calculation (No External API)
-
-**Haversine Formula**
-
-- Pure JavaScript utility function
-- No third-party map or distance API required
-- Runs in:
-  - Next.js API Routes
-  - Server Actions
-
-**Recommended Package (Optional)**
-
-- `geolib`
-
-**Example**
+- We use **[LocationIQ API](https://locationiq.com/)** to convert addresses into latitude and longitude.
+- The API key is stored in your environment variable `NEXT_PUBLIC_LOCATIONIQ_KEY`.
+- Address queries are sent via a simple HTTP GET request:
 
 ```js
-import { getDistance } from "geolib";
+const address = "123 Main St, Lagos, Nigeria";
+const url = `https://us1.locationiq.com/v1/search.php?key=${process.env.NEXT_PUBLIC_LOCATIONIQ_KEY}&q=${encodeURIComponent(address)}&format=json`;
 
-const distance = getDistance(
-  { latitude: userLat, longitude: userLng },
-  { latitude: agentLat, longitude: agentLng }
+const response = await fetch(url);
+const data = await response.json();
+
+// data[0].lat, data[0].lon contain the coordinates
+const latitude = parseFloat(data[0].lat);
+const longitude = parseFloat(data[0].lon);
+```
+
+- This allows the system to verify that the document address exists and to get coordinates for distance checks.
+
+### Moderator & Document Locations
+
+- Moderator location is obtained via the browser's `navigator.geolocation` API.
+
+- Each document in Firestore has its saved latitude and longitude.
+
+- Reverse geocoding (town, city, state) is fetched from Firestore fields or computed internally when needed.
+
+### Distance Validation & Geo-fencing
+
+- Distance between the moderator and document locations is calculated using a **Haversine formula implemented in JavaScript.**
+
+- This ensures that a document can only be verified if the moderator is within the allowed range.
+
+
+```js
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371000; // Earth radius in meters
+
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δφ = toRad(lat2 - lat1);
+  const Δλ = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(Δφ / 2) ** 2 +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+// Example usage
+const distance = getDistanceMeters(
+  moderatorLocation.lat,
+  moderatorLocation.lng,
+  docGeoLocation.lat,
+  docGeoLocation.lng
 );
 
-const isValid = distance <= 100; // distance in meters
+const withinRange = distance <= 100; // distance in meters
 ```
+
+- Documents cannot be verified if the moderator is outside the allowed range.
+
+- No other external API is required for distance checks.
 
 ---
 
@@ -225,6 +254,7 @@ CAV ensures that:
 }
 ```
 
+
 # CAV Roadmap
 
 ## Data Ingestion (User → System)
@@ -241,7 +271,6 @@ CAV ensures that:
 
 ### Key Rules
 - No verification happens at this stage
-- Imported data is marked as `unverified`
 - Each row becomes a **verification document**
 
 ---
@@ -323,6 +352,40 @@ fullName | email | phone | address | city | state | country
   - Status → `verification_failed`
   - Moderator can add notes explaining the reason
 ---
+
+
+## Features of Moderator Verification
+
+- **Multi-step form:** Users can navigate through fields like:
+  - Address existence
+  - Building type and finishing
+  - Person met and relationship
+  - Verification comments
+  - Conditional image upload if address exists
+- **View mode:** Shows all fields in a read-only format.
+- **Edit mode:** Allows updating fields with validation for required inputs.
+- **Location display:** Shows moderator location and document location if available.
+- **Step navigation:** "Next" and "Previous" buttons guide through the form.
+- **Short-circuit logic:** Skips unnecessary steps based on answers (e.g., "No" for address existence).
+- **Loading & saving:** Displays a loader while fetching data or saving changes.
+
+## Props
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `onSave` | function | Callback to save the edited data |
+| `distanceOk` | boolean | Indicates if moderator location is within allowed distance |
+| `moderatorLocation` | object | Latitude, longitude, and accuracy of moderator |
+| `moderatorTownCityState` | object | Town, city, state of moderator |
+| `docGeoLocation` | object | Document's stored geolocation |
+| `docData` | object | Document details |
+| `loading` | boolean | Show loader while fetching data |
+| `mode` | string | `"view"` or `"edit"` |
+| `editedData` | object | Current form state |
+| `setEditedData` | function | Setter for form state |
+| `onClose` | function | Close modal callback |
+
+
 
 ## Final Approval (Admin)
 
